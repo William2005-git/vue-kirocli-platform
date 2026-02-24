@@ -1,6 +1,34 @@
 # KiroCLI Platform
 
-A web-based platform for managing Kiro CLI terminal sessions via browser, with AWS IAM Identity Center (SSO) authentication.
+> A secure, browser-based platform for managing Kiro CLI terminal sessions — powered by AWS IAM Identity Center SSO, with zero credential exposure.
+
+![SSO Login](image/SSO_signin.png)
+
+---
+
+## Why KiroCLI Platform?
+
+Managing Kiro CLI across a team is painful. Developers need to handle AWS credentials, manage local installations, and deal with session sprawl. KiroCLI Platform solves this by centralizing access through a secure web interface.
+
+| Challenge | Traditional Approach | KiroCLI Platform |
+|-----------|---------------------|------------------|
+| Authentication | Distribute AK/SK to every developer | SSO login via AWS IAM Identity Center — no credentials to manage |
+| Access control | Manual IAM policy per user | Role-based groups with per-user session quotas |
+| Session security | Direct CLI access, no audit trail | Random-token URLs + TLS encryption + session logging |
+| Concurrent users | One CLI per machine | Up to 100 concurrent browser-based sessions per instance |
+| Credential rotation | Update AK/SK on every machine | Centralized — rotate once in IAM Identity Center |
+
+---
+
+## Key Security Features
+
+- **No AK/SK distribution** — Users authenticate via AWS IAM Identity Center (SAML 2.0). No AWS access keys are ever shared with end users.
+- **Random-token terminal URLs** — Each Gotty session gets a 16-character cryptographically random URL token (e.g. `/abcd1234efgh5678/`). Guessing a session URL is computationally infeasible.
+- **TLS encryption** — All terminal traffic between the browser and Gotty is encrypted over HTTPS/WSS. No plaintext terminal data on the wire.
+- **Session isolation** — Each user gets their own Gotty process. Sessions are fully isolated and automatically cleaned up on idle timeout.
+- **JWT-based API auth** — Backend APIs are protected with short-lived JWT tokens (8-hour expiry by default).
+
+---
 
 ## Features
 
@@ -8,17 +36,34 @@ A web-based platform for managing Kiro CLI terminal sessions via browser, with A
 - **Browser-based Terminal** powered by Gotty + Kiro CLI
 - **Session Management** — start, monitor, and close terminal sessions
 - **User & Group Management** with role-based access control
-- **System Monitoring** dashboard
+- **Concurrent Sessions** — supports up to 100 simultaneous terminal sessions
+- **Auto Cleanup** — idle sessions are automatically terminated
+- **System Monitoring** dashboard with real-time metrics
+
+---
+
+## Screenshots
+
+### Session Management
+
+![Session Management](image/session_management.png)
+
+### Browser Terminal
+
+![Web Terminal Session](image/web-session.png)
+
+---
 
 ## Architecture
 
 ```
 Browser → Nginx (port 3000) → FastAPI Backend (127.0.0.1:8000)
                                       ↓
-                              Gotty (ports 7860–7960) → kiro-cli
+                    Gotty (ports 7861–7960, TLS) → kiro-cli
+                    [each session: isolated process + random URL token]
 ```
 
-All components run on a single EC2 instance.
+All components run on a single EC2 instance. No external dependencies beyond AWS IAM Identity Center.
 
 ---
 
@@ -105,14 +150,14 @@ sudo chmod 640 /opt/kirocli-certs/gotty.key
 sudo chown ubuntu:ubuntu /opt/kirocli-certs/gotty.key
 ```
 
-Verify the certificate was created:
+Verify:
 
 ```bash
 ls -la /opt/kirocli-certs/
 openssl x509 -in /opt/kirocli-certs/gotty.crt -noout -text | grep -E "Subject:|Not After"
 ```
 
-> **Note on self-signed certificates**: When users first open a Gotty terminal in the browser, they will see a certificate warning. They need to click "Advanced" → "Proceed" once per browser session to trust the certificate. If you have a domain name with a valid CA-signed certificate, use that instead for a seamless experience.
+> **Note on self-signed certificates**: Users will see a browser warning on first visit. They need to click "Advanced" → "Proceed" once to trust the certificate. For production, use a CA-signed certificate with a domain name.
 
 ---
 
@@ -134,7 +179,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create the `.env` file from the example:
+Create the `.env` file:
 
 ```bash
 cp .env.example .env
@@ -151,7 +196,6 @@ SECRET_KEY=<generate with: openssl rand -hex 32>
 
 DATABASE_URL=sqlite:////home/ubuntu/vue-kirocli-platform/backend/data.db
 
-# AWS IAM Identity Center — copy from your SAML application settings page
 SAML_IDP_ENTITY_ID=<IdP Entity ID from IAM Identity Center>
 SAML_IDP_SSO_URL=<SSO URL from IAM Identity Center>
 SAML_IDP_X509_CERT=<certificate content without BEGIN/END lines>
@@ -308,9 +352,7 @@ Attribute mappings:
 
 ## Step 12 — Verify Gotty + Kiro CLI
 
-Before using the platform, manually verify Gotty can launch kiro-cli with TLS.
-
-**Run as the `ubuntu` user (never with sudo):**
+Run as the `ubuntu` user (never with sudo):
 
 ```bash
 gotty \
@@ -327,34 +369,22 @@ gotty \
   $(which kiro-cli)
 ```
 
-The output will show a URL like:
-```
-HTTP server is listening at: https://0.0.0.0:7862/abcd1234efgh5678/
-```
+Open `https://<EC2_PUBLIC_IP>:7862/<token>/` in your browser. Accept the self-signed certificate warning, and you should see the Kiro CLI terminal. Press `Ctrl+C` to stop.
 
-Open `https://<EC2_PUBLIC_IP>:7862/abcd1234efgh5678/` in your browser. Since this is a self-signed certificate, click **"Advanced" → "Proceed to site"** to trust it. You should then see the Kiro CLI terminal. Press `Ctrl+C` to stop.
-
-> **Important**: Users must visit the Gotty HTTPS URL directly once in their browser to trust the self-signed certificate before the embedded terminal in the platform will work.
+> **Important**: Users must visit a Gotty HTTPS URL directly once in their browser to trust the self-signed certificate before the embedded terminal in the platform will work.
 
 ---
 
 ## Step 13 — Verify Full Deployment
 
 ```bash
-# Check backend service
 sudo systemctl status kirocli-backend
-
-# Check backend API
-curl http://127.0.0.1:8000/health
-
-# Check Nginx
+curl http://127.0.0.1:8000/api/v1/health
 sudo systemctl status nginx
-
-# Check listening ports
 ss -tlnp | grep -E '3000|8000'
 ```
 
-Open `http://<EC2_PUBLIC_IP>:3000` in your browser. You should see the login page. Click "SSO Login" to authenticate via AWS IAM Identity Center.
+Open `http://<EC2_PUBLIC_IP>:3000` in your browser. Click "SSO Login" to authenticate via AWS IAM Identity Center.
 
 ---
 
@@ -362,14 +392,8 @@ Open `http://<EC2_PUBLIC_IP>:3000` in your browser. You should see the login pag
 
 ```bash
 cd /home/ubuntu/vue-kirocli-platform
-
-# Pull latest code
 git pull origin main
-
-# Restart backend
 sudo systemctl restart kirocli-backend
-
-# Rebuild frontend
 cd frontend && npm install && npm run build
 ```
 
@@ -379,13 +403,8 @@ cd frontend && npm install && npm run build
 
 ### Terminal shows black screen / "connection close"
 
-The most common cause is an incorrect `KIRO_CLI_PATH`.
-
 ```bash
-# Find the correct path
 which kiro-cli
-
-# Fix .env and restart
 sed -i "s|KIRO_CLI_PATH=.*|KIRO_CLI_PATH=$(which kiro-cli)|" \
   /home/ubuntu/vue-kirocli-platform/backend/.env
 sudo systemctl restart kirocli-backend
@@ -393,42 +412,37 @@ sudo systemctl restart kirocli-backend
 
 Other causes: Security Group not open for ports 7860–7960, or kiro-cli not authenticated (run `kiro-cli` manually to complete login first).
 
+### Backend fails to start (disk full)
+
+```bash
+df -h /
+sudo apt clean
+sudo journalctl --vacuum-time=3d
+```
+
 ### Frontend build killed (OOM)
 
 ```bash
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
 npm run build
 ```
 
 ### Nginx 500 error
 
 ```bash
-sudo tail -20 /var/log/nginx/error.log
 chmod 755 /home/ubuntu
 chmod -R 755 /home/ubuntu/vue-kirocli-platform/frontend/dist
 sudo systemctl restart nginx
 ```
 
-### Backend service fails to start
-
-```bash
-sudo journalctl -u kirocli-backend -n 50 --no-pager
-```
-
 ### SAML `invalid_response`
 
-Verify that `SAML_SP_ACS_URL` in `.env` exactly matches the Application ACS URL in IAM Identity Center (protocol, IP, port, path). A common mistake is a duplicated `https:` prefix in `SAML_IDP_SSO_URL`.
-
-### SAML redirect loop (302 loop)
-
-Verify `SAML_SP_ACS_URL` and `SAML_SP_ENTITY_ID` use the EC2 public IP with port 3000, not localhost or port 8000.
+Verify `SAML_SP_ACS_URL` in `.env` exactly matches the Application ACS URL in IAM Identity Center. A common mistake is a duplicated `https:` prefix in `SAML_IDP_SSO_URL`.
 
 ### SAML "No access" error
 
-In IAM Identity Center Attribute mappings, set Subject to `${user:email}` with format `emailAddress`. Do not use `${user:name}`.
+Set Subject mapping to `${user:email}` with format `emailAddress`. Do not use `${user:name}`.
 
 ---
 
