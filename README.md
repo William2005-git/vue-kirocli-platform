@@ -82,6 +82,41 @@ All components run on a single EC2 instance. No external dependencies beyond AWS
 
 ---
 
+## EC2 IAM Role
+
+The EC2 instance needs an IAM Role with the following policy to support the **Sync from IAM Identity Center** feature (syncing users and groups into the local database).
+
+Create an IAM Role with this inline policy and attach it to your EC2 instance:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "IdentityStoreReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "identitystore:ListUsers",
+        "identitystore:ListGroups",
+        "identitystore:ListGroupMembershipsForMember",
+        "identitystore:DescribeGroup"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+> **Note**: If you do not need the IAM sync feature, this role is optional. Users can still log in via SSO and be created automatically on first login.
+
+**Steps to attach the role:**
+1. AWS Console → IAM → Roles → Create role
+2. Trusted entity: AWS service → EC2
+3. Attach the inline policy above, name it `KiroCLIPlatformPolicy`
+4. EC2 Console → select your instance → Actions → Security → Modify IAM role → attach the role
+
+---
+
 ## Step 1 — Connect to EC2
 
 ```bash
