@@ -197,325 +197,46 @@ The EC2 instance needs an IAM Role with the following policy to support v1.1 fea
 
 ## Quick Start
 
-For detailed deployment instructions, see:
-- **v1.1 (Latest)**: [docs/EC2_DEPLOYMENT_V1.1.md](docs/EC2_DEPLOYMENT_V1.1.md)
-- **v1.0**: Follow the steps below
+**🚀 New in v1.1**: Automated deployment in 3 simple steps!
 
-The steps below provide a quick overview. For production deployments, refer to the full documentation.
+```bash
+# 1. Connect to EC2
+ssh -i /path/to/your-key.pem ubuntu@<YOUR_EC2_IP>
+
+# 2. Download code to ~/kirocli-platform
+git clone https://github.com/YOUR_USERNAME/vue-kirocli-platform.git ~/kirocli-platform
+cd ~/kirocli-platform
+
+# 3. Run installation script
+chmod +x scripts/install.sh
+./scripts/install.sh
+```
+
+That's it! The script will guide you through the rest.
+
+**What the script does**:
+- ✅ Installs all system dependencies (Node.js, Python, Nginx, SQLite)
+- ✅ Installs Gotty terminal tool
+- ✅ Generates TLS certificates
+- ✅ Configures backend environment and database
+- ✅ Builds frontend application
+- ✅ Configures Nginx and systemd services
+- ✅ Starts all services
+
+**Installation time**: ~10-15 minutes
+
+For detailed instructions, see:
+- **Quick Start Guide**: [docs/QUICK_START.md](docs/QUICK_START.md) - Step-by-step with troubleshooting
+- **Full Deployment Guide**: [docs/EC2_DEPLOYMENT_V1.1.md](docs/EC2_DEPLOYMENT_V1.1.md) - Manual deployment steps
+- **Script Documentation**: [scripts/README.md](scripts/README.md) - Installation script details
 
 ---
 
-## Step 1 — Connect to EC2
+## Post-Installation Configuration
 
-```bash
-ssh -i /path/to/your-key.pem ubuntu@<EC2_PUBLIC_IP>
-```
+After the installation script completes, configure AWS IAM Identity Center:
 
----
-
-## Step 2 — Install System Dependencies
-
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y git curl wget nginx python3 python3-pip python3-venv sqlite3
-
-# Install Node.js 20 LTS via nvm
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-source ~/.bashrc
-nvm install 20
-nvm use 20
-nvm alias default 20
-node -v  # should show v20.x.x
-```
-
----
-
-## Step 3 — Install Gotty
-
-```bash
-wget https://github.com/sorenisanerd/gotty/releases/download/v1.5.0/gotty_v1.5.0_linux_amd64.tar.gz
-tar -xzf gotty_v1.5.0_linux_amd64.tar.gz
-sudo mv gotty /usr/local/bin/gotty
-sudo chmod +x /usr/local/bin/gotty
-gotty --version
-```
-
----
-
-## Step 4 — Install Kiro CLI
-
-Follow the official Kiro CLI installation guide, then verify:
-
-```bash
-which kiro-cli        # note the full path, e.g. /usr/bin/kiro-cli
-kiro-cli --version
-```
-
-> **Important**: You must use the absolute path in the `.env` configuration. An incorrect path causes the terminal to show a black screen with "connection close".
-
----
-
-## Step 5 — Create TLS Certificate for Gotty
-
-**v1.1 Important:** Gotty uses HTTPS/TLS, and Nginx proxies to Gotty via `https://127.0.0.1:port`.
-
-```bash
-# Create certificate directory
-mkdir -p /home/ubuntu/kirocli-platform/certs
-
-# Generate self-signed certificate (CN=127.0.0.1, since Gotty binds to 127.0.0.1)
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout /home/ubuntu/kirocli-platform/certs/gotty-key.pem \
-  -out /home/ubuntu/kirocli-platform/certs/gotty-cert.pem \
-  -days 365 \
-  -subj "/CN=127.0.0.1"
-
-# Verify certificate
-openssl x509 -in /home/ubuntu/kirocli-platform/certs/gotty-cert.pem -text -noout | grep "Subject:"
-# Should show: Subject: CN = 127.0.0.1
-```
-
-> **Note:**
-> - Gotty binds to `127.0.0.1` (localhost only), so the certificate CN must be `127.0.0.1`
-> - Nginx uses `proxy_ssl_verify off` to trust the self-signed certificate
-> - Certificate is valid for 365 days; regenerate when expired
-
----
-
-## Step 6 — Clone the Repository
-
-```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/vue-kirocli-platform.git
-cd vue-kirocli-platform
-```
-
----
-
-## Step 7 — Configure Backend
-
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Create the `.env` file:
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-**v1.1 Important:** Sensitive values (SECRET_KEY, SAML_IDP_X509_CERT) should be stored in AWS Secrets Manager, not in `.env`. See [v1.1 Deployment Guide](docs/EC2_DEPLOYMENT_V1.1.md#步骤-7配置-aws-secrets-manager) for details.
-
-Fill in all required values (no inline comments):
-
-```env
-APP_NAME=KiroCLI Platform
-ENVIRONMENT=production
-DEBUG=false
-
-DATABASE_URL=sqlite:////home/ubuntu/vue-kirocli-platform/backend/data.db
-
-SAML_IDP_ENTITY_ID=<IdP Entity ID from IAM Identity Center>
-SAML_IDP_SSO_URL=<SSO URL from IAM Identity Center>
-SAML_SP_ENTITY_ID=http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/metadata
-SAML_SP_ACS_URL=http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/callback
-
-IAM_IDENTITY_STORE_ID=<your Identity Store ID>
-AWS_REGION=cn-northwest-1
-
-GOTTY_PRIMARY_PORT=7860
-GOTTY_PORT_START=7861
-GOTTY_PORT_END=7960
-GOTTY_PATH=/usr/local/bin/gotty
-KIRO_CLI_PATH=<absolute path from: which kiro-cli>
-GOTTY_CERT_PATH=/home/ubuntu/kirocli-platform/certs/gotty-cert.pem
-GOTTY_KEY_PATH=/home/ubuntu/kirocli-platform/certs/gotty-key.pem
-GOTTY_REMOTE_MODE=false
-GOTTY_REMOTE_HOST=<EC2_PUBLIC_IP>
-
-CORS_ORIGINS=["http://<EC2_PUBLIC_IP>:3000"]
-
-LOG_LEVEL=INFO
-LOG_FILE=/home/ubuntu/vue-kirocli-platform/logs/backend.log
-
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_HOURS=8
-
-SESSION_IDLE_TIMEOUT_MINUTES=30
-SESSION_CLEANUP_INTERVAL_MINUTES=5
-
-SECRETS_MANAGER_ENABLED=true
-SECRETS_MANAGER_SECRET_NAME=kirocli-platform/production
-SECRETS_MANAGER_FALLBACK_TO_ENV=false
-```
-
-> **v1.1 Security Notes:**
-> - Do NOT include `SECRET_KEY` in `.env` (load from Secrets Manager)
-> - Do NOT include `SAML_IDP_X509_CERT` in `.env` (load from Secrets Manager)
-> - Set `SECRETS_MANAGER_ENABLED=true` for production
-> - Set `SECRETS_MANAGER_FALLBACK_TO_ENV=false` for production
-> - Gotty TLS certificates are still required (`GOTTY_CERT_PATH`, `GOTTY_KEY_PATH`)
-> - Gotty binds to `127.0.0.1` and is accessed via Nginx HTTPS proxy
-
-Initialize the database:
-
-```bash
-mkdir -p /home/ubuntu/vue-kirocli-platform/logs
-python scripts/init_db.py
-```
-
----
-
-## Step 8 — Configure Backend systemd Service
-
-```bash
-sudo tee /etc/systemd/system/kirocli-backend.service << 'EOF'
-[Unit]
-Description=KiroCLI Platform Backend
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/vue-kirocli-platform/backend
-Environment=HOME=/home/ubuntu
-Environment=USER=ubuntu
-Environment=PATH=/home/ubuntu/vue-kirocli-platform/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/ubuntu/vue-kirocli-platform/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable kirocli-backend
-sudo systemctl start kirocli-backend
-sudo systemctl status kirocli-backend
-```
-
----
-
-## Step 9 — Build Frontend
-
-```bash
-cd /home/ubuntu/vue-kirocli-platform/frontend
-
-# If EC2 has less than 2GB RAM, add swap first
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-
-npm install
-npm run build
-# Success: ✓ built in xx.xxs
-```
-
----
-
-## Step 10 — Configure Nginx
-
-**v1.1 Important Changes:** Nginx configuration now includes dynamic route management for Gotty sessions.
-
-```bash
-# Create required dynamic configuration files (v1.1)
-sudo touch /etc/nginx/conf.d/gotty_routes.conf
-sudo touch /etc/nginx/conf.d/ip_whitelist.conf
-sudo chown ubuntu:ubuntu /etc/nginx/conf.d/gotty_routes.conf
-sudo chown ubuntu:ubuntu /etc/nginx/conf.d/ip_whitelist.conf
-
-# Write initial content to prevent Nginx errors
-cat | sudo tee /etc/nginx/conf.d/gotty_routes.conf > /dev/null << 'EOF'
-# Auto-generated by KiroCLI Platform - do not edit manually
-map $session_token_var $gotty_backend_port {
-    default 0;
-}
-EOF
-
-cat | sudo tee /etc/nginx/conf.d/ip_whitelist.conf > /dev/null << 'EOF'
-# Auto-generated by KiroCLI Platform - do not edit manually
-map $remote_addr $ip_allowed {
-    default 1;
-}
-EOF
-
-# Create map configuration for token extraction (v1.1)
-sudo tee /etc/nginx/conf.d/kirocli_map.conf << 'EOF'
-# Extract session token from URI
-map $request_uri $session_token_var {
-    ~^/terminal/(?<token>[^/]+) $token;
-    default "";
-}
-EOF
-
-# Create main site configuration
-sudo tee /etc/nginx/sites-available/kirocli << 'EOF'
-server {
-    listen 3000;
-    server_name _;
-
-    root /home/ubuntu/vue-kirocli-platform/frontend/dist;
-    index index.html;
-
-    # Static files
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API proxy
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Gotty terminal proxy (v1.1 - dynamic routing)
-    location ~ ^/terminal/([^/]+)(/.*)?$ {
-        # Check if port mapping exists
-        if ($gotty_backend_port = 0) {
-            return 404;
-        }
-
-        # URL rewrite: /terminal/{token}/ → /{token}/
-        rewrite ^/terminal/(.*)$ /$1 break;
-
-        # Proxy to Gotty (HTTPS with self-signed cert)
-        proxy_pass https://127.0.0.1:$gotty_backend_port;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host 127.0.0.1:$gotty_backend_port;
-        proxy_read_timeout 3600s;
-        
-        # SSL configuration for Gotty self-signed cert
-        proxy_ssl_verify off;
-        proxy_ssl_server_name on;
-    }
-}
-EOF
-
-sudo ln -sf /etc/nginx/sites-available/kirocli /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-
-# Fix permissions to avoid Nginx 500 errors
-chmod 755 /home/ubuntu
-chmod -R 755 /home/ubuntu/vue-kirocli-platform/frontend/dist
-
-sudo nginx -t
-sudo systemctl restart nginx
-sudo systemctl enable nginx
-```
-
----
-
-## Step 11 — Configure AWS IAM Identity Center
+### Update SAML Application
 
 In the AWS IAM Identity Center console, update your SAML application:
 
@@ -524,7 +245,7 @@ In the AWS IAM Identity Center console, update your SAML application:
 | Application ACS URL | `http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/callback` |
 | Application SAML audience (Entity ID) | `http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/metadata` |
 
-Attribute mappings:
+### Configure Attribute Mappings
 
 | User attribute in the application | Maps to | Format |
 |-----------------------------------|---------|--------|
@@ -532,62 +253,11 @@ Attribute mappings:
 | email | `${user:email}` | unspecified |
 | groups | `${user:groups}` | unspecified |
 
-> **Note**: Subject must be `${user:email}`. Using `${user:name}` causes a "No access" error.
+> **Important**: Subject must be `${user:email}` with format `emailAddress`. Using `${user:name}` causes a "No access" error.
 
----
+### Verify Deployment
 
-## Step 12 — Verify Gotty + Kiro CLI
-
-Run as the `ubuntu` user (never with sudo):
-
-```bash
-gotty \
-  --address 127.0.0.1 \
-  --port 7862 \
-  --permit-write \
-  --reconnect \
-  --random-url \
-  --random-url-length 16 \
-  --ws-origin ".*" \
-  --tls \
-  --tls-crt /home/ubuntu/kirocli-platform/certs/gotty-cert.pem \
-  --tls-key /home/ubuntu/kirocli-platform/certs/gotty-key.pem \
-  $(which kiro-cli)
-```
-
-**v1.1 Important Changes:**
-- Gotty binds to `127.0.0.1` (not `0.0.0.0`), so it's only accessible locally
-- **Gotty uses HTTPS/TLS** for secure WebSocket connections
-- Nginx proxies to Gotty via `https://127.0.0.1:port` using `proxy_ssl_verify off`
-- Self-signed certificate (CN=127.0.0.1) is required
-
-Test locally on EC2:
-```bash
-# This should work (local HTTPS access)
-curl -k https://127.0.0.1:7862/<token>/
-
-# This will NOT work from your browser (blocked by Security Group)
-# https://<EC2_IP>:7862/<token>/
-```
-
-Terminal access must go through Nginx: `http://<EC2_PUBLIC_IP>:3000/terminal/<token>/`
-
-Press `Ctrl+C` to stop the test.
-
-> **v1.1 Benefit:** Users no longer need to trust Gotty's self-signed certificate in their browser. Nginx handles the internal HTTPS connection to Gotty, while users access terminals via standard HTTP on port 3000.
-
----
-
-## Step 13 — Verify Full Deployment
-
-```bash
-sudo systemctl status kirocli-backend
-curl http://127.0.0.1:8000/api/v1/health
-sudo systemctl status nginx
-ss -tlnp | grep -E '3000|8000'
-```
-
-Open `http://<EC2_PUBLIC_IP>:3000` in your browser. Click "SSO Login" to authenticate via AWS IAM Identity Center.
+Open `http://<EC2_PUBLIC_IP>:3000` in your browser and click "SSO Login".
 
 ---
 
@@ -599,7 +269,7 @@ See [CHANGELOG.md](CHANGELOG.md#migration-notes) for detailed migration instruct
 
 Quick steps:
 ```bash
-cd /home/ubuntu/vue-kirocli-platform
+cd ~/kirocli-platform
 git pull origin main
 
 # Run database migration
@@ -611,7 +281,7 @@ python scripts/upgrade_db.py
 sudo cp nginx/kirocli_map.conf /etc/nginx/conf.d/
 sudo cp nginx/kirocli /etc/nginx/sites-available/
 sudo touch /etc/nginx/conf.d/gotty_routes.conf
-sudo chown ubuntu:ubuntu /etc/nginx/conf.d/gotty_routes.conf
+sudo chown $USER:$USER /etc/nginx/conf.d/gotty_routes.conf
 sudo nginx -t && sudo systemctl reload nginx
 
 # Rebuild frontend
@@ -625,7 +295,7 @@ sudo systemctl restart kirocli-backend
 ### Within v1.1 (patch updates)
 
 ```bash
-cd /home/ubuntu/vue-kirocli-platform
+cd ~/kirocli-platform
 git pull origin main
 sudo systemctl restart kirocli-backend
 cd frontend && npm install && npm run build
@@ -670,11 +340,11 @@ curl -I http://<EC2_IP>:3000
 aws sts get-caller-identity
 
 # Check SNS topic ARN in database
-sqlite3 /home/ubuntu/vue-kirocli-platform/backend/data.db \
+sqlite3 ~/kirocli-platform/backend/data.db \
   "SELECT value FROM system_config WHERE key='sns_topic_arn';"
 
 # Test SNS from backend
-cd /home/ubuntu/vue-kirocli-platform/backend
+cd ~/kirocli-platform/backend
 source .venv/bin/activate
 python -c "import boto3; sns = boto3.client('sns', region_name='cn-northwest-1'); print(sns.publish(TopicArn='YOUR_ARN', Message='Test'))"
 ```
@@ -686,7 +356,7 @@ python -c "import boto3; sns = boto3.client('sns', region_name='cn-northwest-1')
 ```bash
 which kiro-cli
 sed -i "s|KIRO_CLI_PATH=.*|KIRO_CLI_PATH=$(which kiro-cli)|" \
-  /home/ubuntu/vue-kirocli-platform/backend/.env
+  ~/kirocli-platform/backend/.env
 sudo systemctl restart kirocli-backend
 ```
 
