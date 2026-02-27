@@ -26,14 +26,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { CodeOutlined, LoginOutlined } from '@ant-design/icons-vue'
+import { getDeviceFingerprint } from '@/utils/device-fingerprint'
 
 const loading = ref(false)
 
+onMounted(async () => {
+  // 预先采集设备指纹，handleLogin 时使用
+  await getDeviceFingerprint()
+})
+
 function handleLogin() {
   loading.value = true
-  window.location.href = '/api/v1/auth/saml/login'
+  getDeviceFingerprint().then(fp => {
+    if (fp) {
+      localStorage.setItem('pending_device_fingerprint', fp)
+    }
+    window.location.href = '/api/v1/auth/saml/login'
+  })
 }
 </script>
 

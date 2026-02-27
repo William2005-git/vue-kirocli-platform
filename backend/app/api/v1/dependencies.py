@@ -4,7 +4,7 @@ from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import decode_access_token
 from app.models.user import User
 
 
@@ -17,13 +17,32 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "UNAUTHORIZED", "message": "Not authenticated"},
         )
-    user_id = verify_token(access_token)
-    if user_id is None:
+
+    # 解码 token，提取 jti 做黑名单检查
+    payload = decode_access_token(access_token)
+    if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "INVALID_TOKEN", "message": "Invalid or expired token"},
         )
-    user = db.query(User).filter_by(id=user_id).first()
+
+    jti = payload.get("jti")
+    if jti:
+        from app.services.token_service import token_service
+        if token_service.is_blacklisted(jti, db):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "TOKEN_REVOKED", "message": "Token has been revoked"},
+            )
+
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_TOKEN", "message": "Invalid token payload"},
+        )
+
+    user = db.query(User).filter_by(id=int(user_id)).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

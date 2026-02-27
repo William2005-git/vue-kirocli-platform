@@ -3,6 +3,7 @@ export interface Session {
   user_id: number
   username?: string
   gotty_url: string
+  random_token: string
   gotty_pid?: number
   gotty_port?: number
   status: 'starting' | 'running' | 'closed'
@@ -21,6 +22,7 @@ export interface SessionListResponse {
 export interface StartSessionResponse {
   session_id: string
   gotty_url: string
+  random_token: string
   status: string
   started_at?: string
 }

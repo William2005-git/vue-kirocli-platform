@@ -77,11 +77,11 @@
               </div>
               <div class="session-info">
                 <div>启动时间：{{ formatTime(sess.started_at) }}</div>
-                <div>持续时长：{{ formatDuration(sess.duration_seconds) }}</div>
+                <div>持续时长：{{ formatLiveDuration(sess) }}</div>
                 <div v-if="isAdmin && sess.username">用户：{{ sess.username }}</div>
               </div>
               <div class="session-actions">
-                <a-button type="primary" size="small" @click="openTerminal(sess.gotty_url)">
+                <a-button type="primary" size="small" @click="openTerminal(sess.random_token)">
                   打开终端
                 </a-button>
                 <a-button danger size="small" @click="confirmClose(sess.id)">
@@ -105,6 +105,19 @@
     >
       <p>确定要中止会话 <strong>{{ closingSessionId }}</strong> 吗？此操作不可撤销。</p>
     </a-modal>
+
+    <a-modal
+      v-model:open="startingModalVisible"
+      title="正在启动终端"
+      :footer="null"
+      :closable="false"
+      :maskClosable="false"
+    >
+      <div style="text-align: center; padding: 20px 0;">
+        <a-progress :percent="startingProgress" status="active" />
+        <p style="margin-top: 16px; color: #666;">{{ startingMessage }}</p>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -120,9 +133,11 @@ import {
 } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
+import utc from 'dayjs/plugin/utc'
 import 'dayjs/locale/zh-cn'
 
 dayjs.extend(relativeTime)
+dayjs.extend(utc)
 dayjs.locale('zh-cn')
 
 const authStore = useAuthStore()
@@ -135,6 +150,10 @@ const starting = ref(false)
 const closeModalVisible = ref(false)
 const closingSessionId = ref('')
 const closing = ref(false)
+const startingModalVisible = ref(false)
+const startingProgress = ref(0)
+const startingMessage = ref('正在创建会话...')
+const currentTime = ref(Date.now()) // 用于实时更新持续时长
 
 const maxSessions = computed(() => user.value?.permissions?.max_concurrent_sessions ?? 3)
 const dailyQuota = computed(() => user.value?.permissions?.daily_session_quota ?? 10)
@@ -158,19 +177,69 @@ const remainingQuota = computed(() => {
 
 async function handleStartSession() {
   starting.value = true
+  startingModalVisible.value = true
+  startingProgress.value = 0
+  startingMessage.value = '正在创建会话...'
+  
   try {
+    // 阶段 1: 创建会话 (0% → 30%)
     const data = await sessionsStore.startSession()
+    startingProgress.value = 30
+    startingMessage.value = '会话已创建，正在启动终端...'
+    
+    // 阶段 2: 等待 Gotty 启动 (30% → 60%)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    startingProgress.value = 60
+    startingMessage.value = '正在配置终端环境...'
+    
+    // 阶段 3: 轮询检查会话状态 (60% → 80%)
+    const sessionId = data.session_id
+    let attempts = 0
+    const maxAttempts = 10
+    
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+      await sessionsStore.fetchSessions()
+      
+      const session = sessions.value.find(s => s.id === sessionId)
+      if (session?.status === 'running') {
+        startingProgress.value = 80
+        startingMessage.value = '终端已启动，正在配置路由...'
+        break
+      }
+      
+      attempts++
+      startingProgress.value = 60 + (attempts * 2)
+    }
+    
+    // 阶段 4: 等待 Nginx 配置更新 (80% → 95%)
+    // 确保 Nginx 路由配置已更新（后端在会话创建后 3 秒更新）
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    startingProgress.value = 95
+    startingMessage.value = '路由配置完成，准备打开终端...'
+    
+    // 阶段 5: 完成 (95% → 100%)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    startingProgress.value = 100
+    startingMessage.value = '启动成功！'
+    
+    await new Promise(resolve => setTimeout(resolve, 300))
+    
+    // 打开终端窗口
+    window.open(`/terminal/${data.random_token}/`, '_blank')
     message.success('终端启动成功')
-    window.open(data.gotty_url, '_blank')
-  } catch {
-    // error handled by interceptor
+    
+  } catch (error) {
+    // 错误已由 interceptor 处理
   } finally {
     starting.value = false
+    startingModalVisible.value = false
+    startingProgress.value = 0
   }
 }
 
-function openTerminal(url: string) {
-  window.open(url, '_blank')
+function openTerminal(token: string) {
+  window.open(`/terminal/${token}/`, '_blank')
 }
 
 function confirmClose(sessionId: string) {
@@ -190,7 +259,8 @@ async function handleCloseSession() {
 }
 
 function formatTime(t?: string) {
-  return t ? dayjs(t).fromNow() : '-'
+  // 后端返回的是 UTC 时间，需要明确指定为 UTC
+  return t ? dayjs.utc(t).local().fromNow() : '-'
 }
 
 function formatDuration(seconds: number) {
@@ -199,13 +269,44 @@ function formatDuration(seconds: number) {
   return `${m} 分 ${s} 秒`
 }
 
+function formatLiveDuration(sess: any) {
+  if (!sess.started_at) return '-'
+  
+  // 如果会话已关闭，使用后端返回的 duration_seconds
+  if (sess.status === 'closed') {
+    return formatDuration(sess.duration_seconds)
+  }
+  
+  // 如果会话运行中，实时计算持续时长
+  // 后端返回的是 UTC 时间，需要明确指定为 UTC
+  const startTime = dayjs.utc(sess.started_at)
+  const now = dayjs(currentTime.value)
+  const seconds = Math.floor(now.diff(startTime, 'second'))
+  
+  return formatDuration(seconds)
+}
+
 onMounted(() => {
   sessionsStore.fetchSessions()
   sessionsStore.startAutoRefresh(5000)
+  
+  // 每秒更新一次当前时间，用于实时显示持续时长
+  const timer = setInterval(() => {
+    currentTime.value = Date.now()
+  }, 1000)
+  
+  // 保存 timer ID 以便在 unmount 时清理
+  ;(window as any).__dashboardTimer = timer
 })
 
 onUnmounted(() => {
   sessionsStore.stopAutoRefresh()
+  
+  // 清理定时器
+  if ((window as any).__dashboardTimer) {
+    clearInterval((window as any).__dashboardTimer)
+    delete (window as any).__dashboardTimer
+  }
 })
 </script>
 

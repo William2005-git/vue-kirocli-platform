@@ -54,7 +54,7 @@ class GottyService:
     def _build_command(self, port: int) -> list:
         cmd = [
             settings.GOTTY_PATH,
-            "--address", "0.0.0.0",
+            "--address", "127.0.0.1",
             "--port", str(port),
             "--permit-write",
             "--reconnect",

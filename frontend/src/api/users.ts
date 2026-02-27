@@ -37,3 +37,28 @@ export function getMyPreferences() {
 export function updateMyPreferences(prefs: Record<string, string>) {
   return request.put('/users/me/preferences', prefs)
 }
+
+// ─── 设备管理 ─────────────────────────────────────────────────────────────────
+
+export interface UserDevice {
+  id: number
+  device_name: string
+  fingerprint_preview: string
+  first_seen_at: string
+  last_seen_at: string
+  last_seen_ip: string | null
+  login_count: number
+  is_current: boolean
+}
+
+export function getMyDevices() {
+  return request.get<{ success: boolean; data: { devices: UserDevice[] } }>('/users/me/devices')
+}
+
+export function updateMyDevice(deviceId: number, data: { device_name: string }) {
+  return request.put(`/users/me/devices/${deviceId}`, data)
+}
+
+export function deleteMyDevice(deviceId: number) {
+  return request.delete(`/users/me/devices/${deviceId}`)
+}

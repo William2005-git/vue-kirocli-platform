@@ -12,3 +12,11 @@ export function logout() {
 export function getSamlLoginUrl() {
   return '/api/v1/auth/saml/login'
 }
+
+export function refresh() {
+  return request.post<{ success: boolean; data: { expires_in: number } }>('/auth/refresh')
+}
+
+export function registerDevice(fingerprint: string) {
+  return request.post('/auth/device/register', { fingerprint })
+}

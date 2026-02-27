@@ -9,6 +9,7 @@ class SessionResponse(BaseModel):
     user_id: int
     username: Optional[str] = None
     gotty_url: str
+    random_token: str
     gotty_pid: Optional[int] = None
     gotty_port: Optional[int] = None
     status: str
@@ -30,5 +31,6 @@ class SessionListResponse(BaseModel):
 class StartSessionResponse(BaseModel):
     session_id: str
     gotty_url: str
+    random_token: str
     status: str
     started_at: Optional[datetime] = None

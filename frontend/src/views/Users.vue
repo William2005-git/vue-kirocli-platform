@@ -48,9 +48,20 @@
         <template v-if="column.key === 'last_login_at'">
           {{ record.last_login_at ? dayjs(record.last_login_at).format('YYYY-MM-DD HH:mm') : '从未' }}
         </template>
+        <template v-if="column.key === 'daily_quota'">
+          <span :style="getQuotaStyle(record.today_sessions, record.daily_quota)">
+            {{ record.today_sessions }}/{{ record.daily_quota }}
+          </span>
+        </template>
         <template v-if="column.key === 'actions'">
           <a-space>
             <a-button type="link" size="small" @click="openPermissions(record)">配置权限</a-button>
+            <a-popconfirm
+              :title="`确定强制下线 ${record.username}？该用户所有活动会话将被关闭。`"
+              @confirm="handleForceLogout(record)"
+            >
+              <a-button type="link" size="small" danger>强制下线</a-button>
+            </a-popconfirm>
           </a-space>
         </template>
       </template>
@@ -94,6 +105,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { SyncOutlined } from '@ant-design/icons-vue'
 import { getAdminUsers, syncUsers, getAdminUser, updateUserPermissions } from '@/api/users'
+import { forceLogout } from '@/api/admin'
 import dayjs from 'dayjs'
 
 const users = ref<Record<string, unknown>[]>([])
@@ -123,7 +135,7 @@ const columns = [
   { title: '角色', key: 'role' },
   { title: '状态', key: 'status' },
   { title: '最后登录', key: 'last_login_at' },
-  { title: '总会话数', dataIndex: 'total_sessions', key: 'total_sessions' },
+  { title: '今日配额', key: 'daily_quota' },
   { title: '操作', key: 'actions' },
 ]
 
@@ -179,9 +191,29 @@ async function savePermissions() {
   }
 }
 
+async function handleForceLogout(user: Record<string, unknown>) {
+  try {
+    await forceLogout(user.id as number)
+    message.success(`已强制下线 ${user.username}`)
+    await loadUsers()
+  } catch {
+    // error handled by interceptor
+  }
+}
+
 function handlePageChange(page: number) {
   currentPage.value = page
   loadUsers()
+}
+
+function getQuotaStyle(used: number, quota: number): Record<string, string> {
+  const ratio = used / quota
+  if (ratio >= 1) {
+    return { color: '#ff4d4f' }  // 红色：已满
+  } else if (ratio >= 0.8) {
+    return { color: '#fa8c16' }  // 橙色：警告
+  }
+  return {}  // 默认颜色
 }
 
 onMounted(() => loadUsers())

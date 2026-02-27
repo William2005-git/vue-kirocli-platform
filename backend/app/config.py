@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     SAML_IDP_X509_CERT: Optional[str] = None
     SAML_SP_ENTITY_ID: Optional[str] = None
     SAML_SP_ACS_URL: Optional[str] = None
+    SAML_SP_PRIVATE_KEY: Optional[str] = None
 
     IAM_IDENTITY_STORE_ID: str = ""
     AWS_REGION: str = "us-east-1"
@@ -53,9 +54,30 @@ class Settings(BaseSettings):
     SESSION_IDLE_TIMEOUT_MINUTES: int = 30
     SESSION_CLEANUP_INTERVAL_MINUTES: int = 5
 
+    # AWS Secrets Manager
+    SECRETS_MANAGER_ENABLED: bool = False
+    SECRETS_MANAGER_SECRET_NAME: str = "kirocli-platform/development"
+    SECRETS_MANAGER_FALLBACK_TO_ENV: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = True
 
 
 settings = Settings()
+
+# 若启用 Secrets Manager，覆盖敏感配置项
+if settings.SECRETS_MANAGER_ENABLED:
+    try:
+        from app.services.secrets_manager import secrets_loader, _load_sources
+        _secrets = secrets_loader.load(
+            settings.SECRETS_MANAGER_SECRET_NAME,
+            fallback_to_env=settings.SECRETS_MANAGER_FALLBACK_TO_ENV,
+        )
+        _OVERRIDABLE = ("SECRET_KEY", "SAML_IDP_X509_CERT", "SAML_SP_PRIVATE_KEY")
+        for _key in _OVERRIDABLE:
+            if _key in _secrets:
+                object.__setattr__(settings, _key, _secrets[_key])
+    except Exception as _e:
+        import logging as _logging
+        _logging.getLogger(__name__).error(f"Secrets Manager override failed: {_e}")

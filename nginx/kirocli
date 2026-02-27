@@ -1,0 +1,76 @@
+server {
+    listen 3000;
+    server_name _;
+    root /home/ubuntu/kirocli-platform/frontend/dist;
+    index index.html;
+
+    # 前端静态文件
+    location / {
+        if ($ip_allowed = 0) { return 403; }
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API
+    location /api/ {
+        if ($ip_allowed = 0) { return 403; }
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+
+    # 终端认证端点（内部使用）
+    location = /_auth_terminal {
+        internal;
+        proxy_pass http://127.0.0.1:8000/api/v1/sessions/token-verify;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header X-Session-Token $session_token_var;
+        proxy_set_header Cookie $http_cookie;
+    }
+
+    # 通用终端代理 location（处理所有 /terminal/ 请求）
+    location ~ ^/terminal/([^/]+)(/.*)?$ {
+        # 检查端口映射是否存在（端口为 0 表示 token 无效）
+        if ($gotty_backend_port = 0) {
+            return 404;
+        }
+        
+        auth_request /_auth_terminal;
+        error_page 401 = @terminal_401;
+        error_page 403 = @terminal_403;
+        
+        # Gotty 使用 HTTPS，需要用 https 协议代理
+        # 重写 URL：/terminal/{token}/xxx → /{token}/xxx
+        rewrite ^/terminal/(.*)$ /$1 break;
+        proxy_pass https://127.0.0.1:$gotty_backend_port;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # 使用后端地址作为 Host，而不是前端地址
+        proxy_set_header Host 127.0.0.1:$gotty_backend_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        
+        # 信任 Gotty 的自签名证书
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+    }
+
+    # 错误处理
+    location @terminal_401 { return 302 /login; }
+    location @terminal_403 { return 403; }
+}

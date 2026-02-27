@@ -1,6 +1,8 @@
 import asyncio
+import logging
 import random
 import string
+import subprocess
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -14,7 +16,19 @@ from app.core.exceptions import (
 )
 from app.models.permission import UserPermission
 from app.models.session import Session as SessionModel
+from app.services.audit_service import AuditEventType, AuditService
 from app.services.gotty_service import gotty_service
+
+logger = logging.getLogger(__name__)
+
+NGINX_GOTTY_ROUTES_CONF = "/etc/nginx/conf.d/gotty_routes.conf"
+_audit_service = AuditService()
+
+# 延迟导入避免循环依赖
+def _get_alert_service():
+    from app.core.database import SessionLocal
+    from app.services.alert_service import AlertService
+    return AlertService(SessionLocal)
 
 
 def _generate_session_id() -> str:
@@ -26,7 +40,7 @@ class SessionService:
     def __init__(self, db: Session):
         self.db = db
 
-    async def create_session(self, user_id: int) -> SessionModel:
+    async def create_session(self, user_id: int, client_ip: str = None, username: str = None) -> SessionModel:
         await self._check_concurrent_limit(user_id)
         await self._check_daily_quota(user_id)
 
@@ -45,8 +59,27 @@ class SessionService:
         self.db.commit()
         self.db.refresh(session)
 
+        # 审计日志：会话创建
+        _audit_service.log(
+            self.db, AuditEventType.SESSION_CREATE,
+            user_id, username, client_ip, None,
+            {"session_id": session.id, "gotty_port": gotty_sess.port}, "success"
+        )
+
         asyncio.create_task(self._mark_running(session.id))
+        # 更新 Nginx Gotty 路由（异步，不阻塞会话创建响应）
+        asyncio.create_task(self._update_gotty_routes_async())
+        # 告警检测：会话创建频率
+        asyncio.create_task(self._check_session_alert(user_id, client_ip, username))
         return session
+
+    async def _check_session_alert(self, user_id: int, client_ip: str = None, username: str = None):
+        """异步触发会话创建告警检测"""
+        try:
+            alert_service = _get_alert_service()
+            await alert_service.check_and_alert(AuditEventType.SESSION_CREATE, user_id, client_ip, None, username)
+        except Exception as e:
+            logger.warning(f"Session alert check failed: {e}")
 
     async def _mark_running(self, session_id: str):
         await asyncio.sleep(2)
@@ -83,6 +116,16 @@ class SessionService:
         if session.started_at:
             session.duration_seconds = int((now - session.started_at).total_seconds())
         self.db.commit()
+
+        # 审计日志：会话关闭
+        _audit_service.log(
+            self.db, AuditEventType.SESSION_CLOSE,
+            session.user_id, None, None, None,
+            {"session_id": session.id, "duration_seconds": session.duration_seconds}, "success"
+        )
+
+        # 更新 Nginx Gotty 路由
+        self._update_gotty_routes()
 
     async def cleanup_idle_sessions(self):
         threshold = datetime.utcnow() - timedelta(
@@ -161,3 +204,57 @@ class SessionService:
         total = query.count()
         sessions = query.order_by(SessionModel.started_at.desc()).offset(offset).limit(limit).all()
         return sessions, total
+
+    def _update_gotty_routes(self) -> None:
+        """
+        查询所有 running 状态的会话，生成 Nginx Gotty 路由配置并 reload。
+        同步版本，在会话关闭时调用。
+        """
+        try:
+            active = (
+                self.db.query(SessionModel)
+                .filter(SessionModel.status.in_(["starting", "running"]))
+                .all()
+            )
+            conf = _generate_gotty_routes_conf(active)
+            with open(NGINX_GOTTY_ROUTES_CONF, "w") as f:
+                f.write(conf)
+            subprocess.run(
+                ["/usr/bin/sudo", "/usr/sbin/nginx", "-s", "reload"],
+                capture_output=True, text=True, timeout=10, check=False
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update Gotty routes: {e}")
+
+    async def _update_gotty_routes_async(self) -> None:
+        """异步版本，在会话创建后调用（等待 Gotty 启动后再更新路由）"""
+        await asyncio.sleep(3)
+        self._update_gotty_routes()
+
+
+def _generate_gotty_routes_conf(sessions: list) -> str:
+    """
+    生成 token → port 的 map 映射配置。
+    使用单个通用 location 块处理所有 /terminal/ 请求，通过 map 动态路由到对应端口。
+    这样避免了时序问题：前端可以立即打开终端 URL，无需等待 Nginx 配置更新。
+    """
+    lines = [
+        "# 由 KiroCLI Platform 自动生成，请勿手动修改",
+        f"# 更新时间: {datetime.utcnow().isoformat()}Z",
+        "",
+        "# Token 到 Gotty 端口的映射",
+        "map $session_token_var $gotty_backend_port {",
+        "    default 0;",
+    ]
+    
+    for sess in sessions:
+        token = sess.random_token
+        port = sess.gotty_port
+        lines.append(f"    {token} {port};")
+    
+    lines += [
+        "}",
+        "",
+    ]
+    
+    return "\n".join(lines)

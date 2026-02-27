@@ -71,6 +71,37 @@
         </a-card>
       </a-col>
     </a-row>
+
+    <!-- 近期告警事件（页面底部）-->
+    <a-row :gutter="16" style="margin-top: 16px">
+      <a-col :span="24">
+        <a-card title="近期告警事件">
+          <template #extra>
+            <router-link to="/settings?tab=audit">查看全部</router-link>
+          </template>
+          <a-table
+            :columns="alertEventColumns"
+            :data-source="recentAlerts"
+            :loading="alertsLoading"
+            row-key="id"
+            :pagination="false"
+            size="small"
+          >
+            <template #bodyCell="{ column, record }: { column: { key: string }, record: Record<string, unknown> }">
+              <template v-if="column.key === 'triggered_at'">
+                {{ record.triggered_at ? dayjs(record.triggered_at as string).format('MM-DD HH:mm') : '-' }}
+              </template>
+              <template v-else-if="column.key === 'notification_sent'">
+                <a-badge
+                  :status="record.notification_sent ? 'success' : 'warning'"
+                  :text="record.notification_sent ? '已发送' : '未发送'"
+                />
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-col>
+    </a-row>
   </div>
 </template>
 
@@ -87,10 +118,33 @@ import {
   CodeOutlined, UserOutlined, DashboardOutlined, HddOutlined, DownloadOutlined,
 } from '@ant-design/icons-vue'
 
+import { getAlertEvents } from '@/api/admin'
+import type { AlertEvent } from '@/api/admin'
+
 const monitoringStore = useMonitoringStore()
 const authStore = useAuthStore()
 const { realtime, statistics, loading: statsLoading } = storeToRefs(monitoringStore)
 const canExport = computed(() => authStore.user?.permissions?.can_export_data)
+
+const recentAlerts = ref<AlertEvent[]>([])
+const alertsLoading = ref(false)
+const alertEventColumns = [
+  { title: '时间', key: 'triggered_at', width: 120 },
+  { title: '告警类型', dataIndex: 'rule_key' },
+  { title: '触发用户', dataIndex: 'triggered_username' },
+  { title: '通知状态', key: 'notification_sent' },
+]
+
+async function loadRecentAlerts() {
+  if (!authStore.isAdmin) return
+  alertsLoading.value = true
+  try {
+    const res = await getAlertEvents({ limit: 10 })
+    recentAlerts.value = res.data.data.events
+  } finally {
+    alertsLoading.value = false
+  }
+}
 
 const autoRefresh = ref(true)
 const days = ref(7)
@@ -161,6 +215,7 @@ async function handleExport() {
 onMounted(async () => {
   await monitoringStore.fetchRealtime()
   await loadStats()
+  await loadRecentAlerts()
   if (autoRefresh.value) monitoringStore.startAutoRefresh()
 })
 

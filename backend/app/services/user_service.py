@@ -24,9 +24,35 @@ def _create_default_preferences(db: Session, user_id: int):
     db.add(pref)
 
 
+def _resolve_group_display_name(group_id: str) -> str:
+    """
+    尝试通过 IAM Identity Store API 将 GroupId 解析为 DisplayName。
+    失败时返回原始值（兼容直接使用 DisplayName 的场景）。
+    """
+    try:
+        import boto3
+        from app.config import settings
+        if not settings.IAM_IDENTITY_STORE_ID or not settings.AWS_REGION:
+            return group_id
+        client = boto3.client("identitystore", region_name=settings.AWS_REGION)
+        resp = client.describe_group(
+            IdentityStoreId=settings.IAM_IDENTITY_STORE_ID,
+            GroupId=group_id,
+        )
+        return resp.get("DisplayName", group_id)
+    except Exception:
+        return group_id
+
+
 def _determine_role(db: Session, groups: List[str]) -> str:
-    for group_name in groups:
-        mapping = db.query(GroupRoleMapping).filter_by(group_name=group_name).first()
+    for group_id in groups:
+        # 先直接匹配（兼容 DisplayName 直接存入的情况）
+        mapping = db.query(GroupRoleMapping).filter_by(group_name=group_id).first()
+        if not mapping:
+            # 尝试将 GroupId 解析为 DisplayName 再匹配
+            display_name = _resolve_group_display_name(group_id)
+            if display_name != group_id:
+                mapping = db.query(GroupRoleMapping).filter_by(group_name=display_name).first()
         if mapping and mapping.role == "admin":
             return "admin"
     return "user"
@@ -101,8 +127,25 @@ class UserService:
         pref.updated_at = datetime.utcnow()
         self.db.commit()
 
-    def get_user_total_sessions(self, user_id: int) -> int:
-        return self.db.query(SessionModel).filter_by(user_id=user_id).count()
+    def get_user_total_sessions(self, user_id: int, today_only: bool = False) -> int:
+        """
+        获取用户会话数量
+        
+        Args:
+            user_id: 用户 ID
+            today_only: 是否只统计今天的会话（UTC 时间的"今天"）
+        
+        Returns:
+            会话数量
+        """
+        query = self.db.query(SessionModel).filter_by(user_id=user_id)
+        
+        if today_only:
+            # 计算 UTC 今天的开始时间（00:00:00）
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(SessionModel.started_at >= today_start)
+        
+        return query.count()
 
     def sync_from_iam(self) -> dict:
         if not settings.IAM_IDENTITY_STORE_ID:

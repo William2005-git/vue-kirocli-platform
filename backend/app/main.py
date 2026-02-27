@@ -29,6 +29,27 @@ async def lifespan(app: FastAPI):
         service = SessionService(db)
         await service.restore_sessions_on_startup()
         logger.info("Session state restored")
+
+        # 初始化 Nginx IP 白名单配置
+        from app.services.ip_whitelist_service import IPWhitelistService
+        try:
+            IPWhitelistService().init_nginx_conf(db)
+        except Exception as e:
+            logger.warning(f"IP whitelist Nginx config init skipped: {e}")
+
+        # 初始化 Token 黑名单内存缓存
+        from app.services.token_service import token_service
+        try:
+            token_service.init_blacklist_cache(db)
+        except Exception as e:
+            logger.warning(f"Token blacklist cache init skipped: {e}")
+
+        # 检测 SECRET_KEY 是否轮换
+        from app.services.secrets_manager import secrets_loader
+        try:
+            secrets_loader.check_key_rotation(db, settings.SECRET_KEY)
+        except Exception as e:
+            logger.warning(f"Secret key rotation check skipped: {e}")
     finally:
         db.close()
 
@@ -44,15 +65,30 @@ async def lifespan(app: FastAPI):
             finally:
                 db.close()
 
+    async def token_cleanup_task():
+        """每 24 小时清理过期 Token 记录"""
+        while True:
+            await asyncio.sleep(24 * 3600)
+            db = SessionLocal()
+            try:
+                from app.services.token_service import token_service
+                token_service.cleanup_expired(db)
+            except Exception as e:
+                logger.error(f"Token cleanup error: {e}")
+            finally:
+                db.close()
+
     task = asyncio.create_task(cleanup_task())
+    token_task = asyncio.create_task(token_cleanup_task())
     yield
     task.cancel()
+    token_task.cancel()
     logger.info("Shutting down")
 
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
