@@ -146,38 +146,8 @@ openssl x509 -in /home/ubuntu/kirocli-platform/certs/gotty-cert.pem -text -noout
 ---
 
 ## 步骤 7：上传代码到 EC2
-
-**v1.1 变化**：需要额外上传 `nginx/` 目录。
-
-在**本地机器**执行：
-
-```bash
-EC2_IP=<YOUR_EC2_IP>
-KEY=/path/to/your-key.pem
-
-# 创建远端目录
-ssh -i $KEY ubuntu@$EC2_IP \
-  "mkdir -p /home/ubuntu/kirocli-platform/backend /home/ubuntu/kirocli-platform/frontend /home/ubuntu/kirocli-platform/nginx"
-
-# 上传后端
-rsync -avz --exclude '.venv' --exclude '__pycache__' --exclude '*.pyc' --exclude 'data.db' \
-  -e "ssh -i $KEY" \
-  vue-kirocli-platform/backend/ \
-  ubuntu@$EC2_IP:/home/ubuntu/kirocli-platform/backend/
-
-# 上传前端
-rsync -avz --exclude 'node_modules' --exclude 'dist' \
-  -e "ssh -i $KEY" \
-  vue-kirocli-platform/frontend/ \
-  ubuntu@$EC2_IP:/home/ubuntu/kirocli-platform/frontend/
-
-# 上传 Nginx 配置（v1.1 新增）
-rsync -avz \
-  -e "ssh -i $KEY" \
-  vue-kirocli-platform/nginx/ \
-  ubuntu@$EC2_IP:/home/ubuntu/kirocli-platform/nginx/
-```
-
+# 从Git Hub 仓库下载代码文件。
+EC2的代码目录为/home/ubuntu/kirocli-platform
 ---
 
 ## 步骤 7：配置 AWS Secrets Manager（v1.1 必需）
