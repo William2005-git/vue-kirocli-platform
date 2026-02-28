@@ -115,7 +115,7 @@ All components run on a single EC2 instance. No external dependencies beyond AWS
 
 - AWS EC2 instance running **Ubuntu 22.04** (recommended: t3.medium or larger)
 - AWS IAM Identity Center configured with a SAML application
-- Kiro CLI installed on the EC2 instance
+- **Kiro CLI installed and configured** on the EC2 instance (see installation steps below)
 - EC2 Security Group inbound rules:
 
 | Port | Protocol | Source | Purpose | Version |
@@ -128,6 +128,57 @@ All components run on a single EC2 instance. No external dependencies beyond AWS
 **Optional (v1.1):**
 - AWS SNS Topic for alert notifications
 - AWS Secrets Manager for centralized secret management
+
+---
+
+## Installing Kiro CLI (Required Before Deployment)
+
+**Important**: Kiro CLI must be installed and configured BEFORE running the deployment script. The installation process requires interactive configuration that cannot be automated.
+
+### Installation Steps
+
+1. **Download and install Kiro CLI**:
+
+```bash
+# Download the latest Kiro CLI package
+wget https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb
+
+# Install the package
+sudo dpkg -i kiro-cli.deb
+
+# Fix any dependency issues
+sudo apt-get install -f -y
+
+# Clean up
+rm kiro-cli.deb
+```
+
+2. **Verify installation**:
+
+```bash
+kiro --version
+```
+
+3. **Configure Kiro CLI**:
+
+```bash
+# Run Kiro CLI to complete initial configuration
+kiro
+
+# Follow the interactive prompts to:
+# - Authenticate with your AWS credentials
+# - Configure default settings
+# - Complete any required setup steps
+```
+
+4. **Verify Kiro CLI is working**:
+
+```bash
+# Test that Kiro CLI can execute commands
+kiro --help
+```
+
+> **Note**: The deployment script (`install.sh`) will verify that Kiro CLI is installed and accessible. If Kiro CLI is not found, the script will exit with an error message.
 
 ---
 
@@ -276,6 +327,8 @@ For detailed configuration examples, see [EC2_DEPLOYMENT_V1.1.md](docs/EC2_DEPLO
 ## Quick Start
 
 **🚀 New in v1.1**: Automated deployment in 3 simple steps!
+
+**Prerequisites**: Make sure you have [installed Kiro CLI](#installing-kiro-cli-required-before-deployment) before proceeding.
 
 ```bash
 # 1. Connect to EC2

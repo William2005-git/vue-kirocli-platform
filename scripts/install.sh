@@ -228,40 +228,26 @@ if [ "$INSTALL_GOTTY" = true ]; then
     echo_info "Gotty 安装完成: $GOTTY_VERSION"
 fi
 
-# 步骤 5: 安装 Kiro CLI
-echo_step "步骤 5: 安装 Kiro CLI"
-if command -v kiro &> /dev/null; then
-    KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
-    echo_info "检测到已安装 Kiro CLI: $KIRO_CLI_VERSION"
-    read -p "是否重新安装 Kiro CLI？(y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        INSTALL_KIRO=true
-    else
-        INSTALL_KIRO=false
-        KIRO_CLI_PATH=$(which kiro)
-    fi
-else
-    INSTALL_KIRO=true
-fi
+# 步骤 5: 检查 Kiro CLI
+echo_step "步骤 5: 检查 Kiro CLI"
 
-if [ "$INSTALL_KIRO" = true ]; then
-    echo_info "下载并安装 Kiro CLI..."
-    cd /tmp
-    wget -q https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb
-    sudo dpkg -i kiro-cli.deb
-    sudo apt-get install -f -y
-    rm kiro-cli.deb
-    
-    if command -v kiro &> /dev/null; then
-        KIRO_CLI_PATH=$(which kiro)
-        KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
-        echo_info "Kiro CLI 安装完成: $KIRO_CLI_VERSION"
-        echo_info "安装路径: $KIRO_CLI_PATH"
-    else
-        echo_error "Kiro CLI 安装失败"
-        exit 1
-    fi
+if command -v kiro &> /dev/null; then
+    KIRO_CLI_PATH=$(which kiro)
+    KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
+    echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
+    echo_info "安装路径: $KIRO_CLI_PATH"
+else
+    echo_error "未检测到 Kiro CLI"
+    echo_info "请先安装 Kiro CLI，然后重新运行此脚本"
+    echo ""
+    echo_info "安装步骤："
+    echo_info "  1. wget https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb"
+    echo_info "  2. sudo dpkg -i kiro-cli.deb"
+    echo_info "  3. sudo apt-get install -f -y"
+    echo_info "  4. kiro --version  # 验证安装"
+    echo ""
+    echo_info "详细说明请参考 README.md 中的 'Installing Kiro CLI' 部分"
+    exit 1
 fi
 
 # 步骤 6: 生成 TLS 证书
