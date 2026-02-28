@@ -231,13 +231,7 @@ fi
 # 步骤 5: 检查 Kiro CLI
 echo_step "步骤 5: 检查 Kiro CLI"
 
-# 检查 kiro 或 kiro-cli 命令
-if command -v kiro &> /dev/null; then
-    KIRO_CLI_PATH=$(which kiro)
-    KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
-    echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
-    echo_info "安装路径: $KIRO_CLI_PATH"
-elif command -v kiro-cli &> /dev/null; then
+if command -v kiro-cli &> /dev/null; then
     KIRO_CLI_PATH=$(which kiro-cli)
     KIRO_CLI_VERSION=$(kiro-cli --version 2>&1 || echo "unknown")
     echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
