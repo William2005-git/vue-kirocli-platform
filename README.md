@@ -133,9 +133,20 @@ All components run on a single EC2 instance. No external dependencies beyond AWS
 
 ## EC2 IAM Role
 
-The EC2 instance needs an IAM Role with the following policy to support v1.1 features:
+The EC2 instance needs an IAM Role with permissions for both platform features and Kiro-CLI operations.
+
+### Understanding IAM Role Requirements
+
+**Important**: The EC2 IAM Role serves two purposes:
+
+1. **Platform Features** - Permissions for the platform itself (IAM Identity Center sync, Secrets Manager, SNS alerts)
+2. **Kiro-CLI Operations** - Permissions for AWS operations that users execute through Kiro-CLI in terminal sessions
+
+The platform's SAML authentication only controls who can log in. All AWS operations performed through Kiro-CLI use the EC2's IAM Role credentials. Therefore, you must grant the EC2 Role sufficient permissions based on what AWS resources your users need to manage.
 
 ### Required Permissions
+
+#### 1. Platform Base Permissions (Required)
 
 **For IAM Identity Center Sync** (syncing users and groups into the local database):
 
@@ -185,13 +196,80 @@ The EC2 instance needs an IAM Role with the following policy to support v1.1 fea
 }
 ```
 
-> **Note**: If you do not need IAM sync, Secrets Manager, or SNS features, these permissions are optional. Users can still log in via SSO and be created automatically on first login.
+#### 2. Kiro-CLI Operational Permissions (Choose Based on Use Case)
 
-**Steps to attach the role:**
+Users execute Kiro-CLI commands through terminal sessions. The EC2 IAM Role determines what AWS operations they can perform.
+
+**Option A: Full Administrative Access** (recommended for production operations teams)
+
+Attach the AWS managed policy: `AdministratorAccess`
+
+Use when users need to:
+- Manage all AWS services (EC2, S3, RDS, Lambda, etc.)
+- Create, modify, and delete resources
+- Perform complete infrastructure operations
+
+**Option B: Service-Specific Access** (recommended for limited scope)
+
+Attach specific AWS managed policies based on required services:
+- `AmazonEC2FullAccess` - EC2 instance management
+- `AmazonS3FullAccess` - S3 bucket operations
+- `AmazonRDSFullAccess` - RDS database management
+- `AWSLambda_FullAccess` - Lambda function management
+- `CloudWatchFullAccess` - CloudWatch monitoring
+- `IAMFullAccess` - IAM management (use with caution)
+
+**Option C: Custom Minimal Permissions** (recommended for security-sensitive environments)
+
+Create a custom policy with only the specific actions needed. Example for read-only EC2 access:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "KiroCLIEC2ReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:Get*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+### Permission Configuration Guide
+
+| Use Case | Recommended Configuration | Notes |
+|----------|--------------------------|-------|
+| Production Operations | `AdministratorAccess` | Full AWS management capabilities |
+| Development/Testing | Service-specific policies | Limit to required services (EC2, S3, etc.) |
+| Read-Only Auditing | `ReadOnlyAccess` | View resources without modification |
+| Specific Tasks | Custom minimal policy | Grant only necessary permissions |
+
+### Security Best Practices
+
+1. **Principle of Least Privilege** - Grant only the minimum permissions required for users' actual tasks
+2. **Regular Audits** - Review IAM Role permissions periodically to ensure they remain appropriate
+3. **CloudTrail Monitoring** - Enable CloudTrail to track all API calls made through Kiro-CLI
+4. **Environment Separation** - Use different IAM Roles for production, staging, and development environments
+5. **Temporary Elevation** - For high-risk operations (e.g., resource deletion), consider implementing approval workflows
+
+> **Note**: If you do not need IAM sync, Secrets Manager, or SNS features, those permissions are optional. Users can still log in via SSO and be created automatically on first login. However, Kiro-CLI operational permissions are essential for users to perform any AWS operations through the terminal.
+
+### Steps to Attach the Role
+
 1. AWS Console → IAM → Roles → Create role
 2. Trusted entity: AWS service → EC2
-3. Attach the inline policies above, name it `KiroCLIPlatformPolicy`
+3. Attach policies:
+   - Create inline policy for platform base permissions (IAM Identity Center, Secrets Manager, SNS)
+   - Attach AWS managed policy for Kiro-CLI operations (e.g., `AdministratorAccess` or service-specific policies)
+   - Name the role `KiroCLIPlatformRole`
 4. EC2 Console → select your instance → Actions → Security → Modify IAM role → attach the role
+
+For detailed configuration examples, see [EC2_DEPLOYMENT_V1.1.md](docs/EC2_DEPLOYMENT_V1.1.md#71-配置-ec2-iam-role推荐方式)
 
 ---
 

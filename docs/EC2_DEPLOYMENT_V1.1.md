@@ -156,15 +156,30 @@ EC2的代码目录为/home/ubuntu/kirocli-platform
 
 ### 7.1 配置 EC2 IAM Role（推荐方式）
 
+**重要说明**：EC2 需要执行 Kiro-CLI 进行完整的运维工作，因此需要根据 Kiro-CLI 的实际使用权限来定义 EC2 的 IAM Role 权限。
+
+#### Kiro-CLI 权限要求
+
+Kiro-CLI 是一个 AWS 管理工具，用户通过平台终端执行 Kiro-CLI 命令来管理 AWS 资源。EC2 实例的 IAM Role 权限应该基于以下原则：
+
+1. **最小权限原则**：根据用户实际需要执行的 Kiro-CLI 操作，授予相应的 AWS 服务权限
+2. **权限范围**：如果用户需要执行完整的运维工作（如管理 EC2、S3、RDS、Lambda 等），建议授予 `AdministratorAccess` 托管策略
+3. **权限隔离**：如果只需要特定服务的管理权限，可以授予对应服务的完全访问权限（如 `AmazonEC2FullAccess`、`AmazonS3FullAccess` 等）
+
+#### 完整运维权限配置（推荐用于生产环境管理员）
+
 ```bash
 # 1. 在 AWS 控制台创建 IAM Role
 # Role 名称：kirocli-platform-ec2-role
 # 信任实体：EC2
 # 权限策略：
+
+# 策略 1：平台基础权限（必需）
 {
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "SecretsManagerAccess",
       "Effect": "Allow",
       "Action": [
         "secretsmanager:GetSecretValue",
@@ -173,10 +188,55 @@ EC2的代码目录为/home/ubuntu/kirocli-platform
       "Resource": "arn:aws-cn:secretsmanager:cn-northwest-1:<ACCOUNT_ID>:secret:kirocli-platform/production-*"
     },
     {
+      "Sid": "IdentityStoreAccess",
       "Effect": "Allow",
       "Action": [
         "identitystore:DescribeUser",
         "identitystore:ListUsers"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SNSAlertAccess",
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish"
+      ],
+      "Resource": "arn:aws-cn:sns:cn-northwest-1:<ACCOUNT_ID>:kirocli-platform-alerts"
+    }
+  ]
+}
+
+# 策略 2：Kiro-CLI 完整运维权限（根据实际需求选择）
+# 选项 A：管理员完全访问（适用于需要执行完整运维工作的场景）
+# 附加 AWS 托管策略：AdministratorAccess
+
+# 选项 B：特定服务完全访问（适用于权限受限的场景）
+# 根据实际需要附加以下托管策略：
+# - AmazonEC2FullAccess（EC2 管理）
+# - AmazonS3FullAccess（S3 管理）
+# - AmazonRDSFullAccess（RDS 管理）
+# - AWSLambda_FullAccess（Lambda 管理）
+# - CloudWatchFullAccess（CloudWatch 监控）
+# - IAMFullAccess（IAM 管理，谨慎授予）
+# 等等...
+
+# 选项 C：自定义权限策略（最小权限原则）
+# 根据用户实际执行的 Kiro-CLI 命令，授予对应的 AWS API 权限
+# 示例：只允许查看和管理 EC2 实例
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "KiroCLIEC2Access",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "ec2:RebootInstances",
+        "ec2:TerminateInstances",
+        "ec2:CreateTags"
       ],
       "Resource": "*"
     }
@@ -186,6 +246,23 @@ EC2的代码目录为/home/ubuntu/kirocli-platform
 # 2. 将 IAM Role 附加到 EC2 实例
 # 在 EC2 控制台 → 实例 → 操作 → 安全 → 修改 IAM 角色
 ```
+
+#### 权限配置建议
+
+| 使用场景 | 推荐权限配置 | 说明 |
+|---------|------------|------|
+| 生产环境管理员 | `AdministratorAccess` | 需要执行完整的 AWS 运维工作，包括创建、修改、删除各类资源 |
+| 开发/测试环境 | 特定服务完全访问 | 根据实际需要授予 EC2、S3、RDS 等服务的完全访问权限 |
+| 只读审计 | 只读权限策略 | 只允许查看资源信息，不允许修改（如 `ReadOnlyAccess`） |
+| 特定任务 | 自定义最小权限 | 根据具体任务需求，授予最小必要权限 |
+
+#### 安全注意事项
+
+1. **权限审计**：定期审查 EC2 IAM Role 的权限，确保符合最小权限原则
+2. **权限监控**：通过 CloudTrail 监控 Kiro-CLI 执行的 AWS API 调用，及时发现异常操作
+3. **权限隔离**：不同环境（生产/测试/开发）使用不同的 IAM Role，避免权限泄露
+4. **临时权限**：对于高风险操作（如删除资源），考虑使用临时权限提升机制
+5. **用户认证**：平台的 SAML 认证只控制用户是否能登录平台，不控制 Kiro-CLI 的 AWS 权限。AWS 权限完全由 EC2 的 IAM Role 决定
 
 ### 7.2 创建 Secrets Manager 密钥
 
