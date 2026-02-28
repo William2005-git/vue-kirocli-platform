@@ -192,6 +192,46 @@ kiro-cli --help
 
 ---
 
+## Configuring AWS IAM Identity Center (Required Before Deployment)
+
+**Important**: You must configure AWS IAM Identity Center BEFORE running the installation script. The script will prompt you for configuration values that you'll obtain from IAM Identity Center.
+
+### Quick Configuration Checklist
+
+Before running the installation script, complete these steps in AWS IAM Identity Center:
+
+1. ✅ **Create users** with valid email addresses
+2. ✅ **Create groups** and assign users
+3. ✅ **Create SAML application** with correct URLs:
+   - Application ACS URL: `http://<YOUR_IP_OR_DOMAIN>:3000/api/v1/auth/saml/callback`
+   - Application SAML audience: `http://<YOUR_IP_OR_DOMAIN>:3000/api/v1/auth/saml/metadata`
+4. ✅ **Configure attribute mappings**:
+   - Subject: `${user:email}` (format: `emailAddress`)
+   - email: `${user:email}` (format: `unspecified`)
+   - groups: `${user:groups}` (format: `unspecified`)
+5. ✅ **Assign users/groups** to the application
+6. ✅ **Collect configuration values**:
+   - SAML IDP Entity ID
+   - SAML IDP SSO URL
+   - SAML IDP X509 Certificate
+   - IAM Identity Store ID
+   - AWS Region
+
+### Detailed Configuration Guide
+
+For step-by-step instructions with screenshots and troubleshooting, see:
+
+**[📖 IAM Identity Center Configuration Guide](docs/IAM_IDENTITY_CENTER_SETUP.md)**
+
+This guide covers:
+- Creating users and groups
+- Creating and configuring the SAML application
+- Setting up attribute mappings
+- Collecting all required configuration values
+- Common troubleshooting scenarios
+
+---
+
 ## EC2 IAM Role
 
 The EC2 instance needs an IAM Role with permissions for both platform features and Kiro-CLI operations.
@@ -375,30 +415,37 @@ For detailed instructions, see:
 
 ## Post-Installation Configuration
 
-After the installation script completes, configure AWS IAM Identity Center:
+After the installation script completes:
 
-### Update SAML Application
+### 1. Configure AWS Secrets Manager (Required)
 
-In the AWS IAM Identity Center console, update your SAML application:
+The installation script will guide you through Secrets Manager configuration. If you skipped it, follow these steps:
 
-| Field | Value |
-|-------|-------|
-| Application ACS URL | `http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/callback` |
-| Application SAML audience (Entity ID) | `http://<EC2_PUBLIC_IP>:3000/api/v1/auth/saml/metadata` |
+1. Create a secret in AWS Secrets Manager:
+   - Secret name: `kirocli-platform/production` (or the name you specified)
+   - Secret type: Other type of secret
+   - Secret value (JSON format):
+   ```json
+   {
+     "SECRET_KEY": "<random-generated-key>",
+     "SAML_IDP_X509_CERT": "<certificate-from-iam-identity-center>"
+   }
+   ```
 
-### Configure Attribute Mappings
+2. Ensure EC2 IAM Role has permissions:
+   - `secretsmanager:GetSecretValue`
+   - `secretsmanager:DescribeSecret`
 
-| User attribute in the application | Maps to | Format |
-|-----------------------------------|---------|--------|
-| Subject | `${user:email}` | emailAddress |
-| email | `${user:email}` | unspecified |
-| groups | `${user:groups}` | unspecified |
+3. Restart the backend service:
+   ```bash
+   sudo systemctl restart kirocli-backend
+   ```
 
-> **Important**: Subject must be `${user:email}` with format `emailAddress`. Using `${user:name}` causes a "No access" error.
-
-### Verify Deployment
+### 2. Verify Deployment
 
 Open `http://<EC2_PUBLIC_IP>:3000` in your browser and click "SSO Login".
+
+If you encounter issues, see the [Troubleshooting](#troubleshooting) section or [IAM Identity Center Configuration Guide](docs/IAM_IDENTITY_CENTER_SETUP.md#troubleshooting).
 
 ---
 
