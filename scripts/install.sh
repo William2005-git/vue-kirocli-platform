@@ -236,6 +236,12 @@ if command -v kiro-cli &> /dev/null; then
     KIRO_CLI_VERSION=$(kiro-cli --version 2>&1 || echo "unknown")
     echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
     echo_info "安装路径: $KIRO_CLI_PATH"
+    
+    # 验证路径不为空
+    if [ -z "$KIRO_CLI_PATH" ]; then
+        echo_error "无法获取 kiro-cli 路径"
+        exit 1
+    fi
 else
     echo_error "未检测到 Kiro CLI"
     echo_info "请先安装 Kiro CLI，然后重新运行此脚本"
