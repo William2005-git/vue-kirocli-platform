@@ -231,9 +231,15 @@ fi
 # 步骤 5: 检查 Kiro CLI
 echo_step "步骤 5: 检查 Kiro CLI"
 
+# 检查 kiro 或 kiro-cli 命令
 if command -v kiro &> /dev/null; then
     KIRO_CLI_PATH=$(which kiro)
     KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
+    echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
+    echo_info "安装路径: $KIRO_CLI_PATH"
+elif command -v kiro-cli &> /dev/null; then
+    KIRO_CLI_PATH=$(which kiro-cli)
+    KIRO_CLI_VERSION=$(kiro-cli --version 2>&1 || echo "unknown")
     echo_info "检测到 Kiro CLI: $KIRO_CLI_VERSION"
     echo_info "安装路径: $KIRO_CLI_PATH"
 else
@@ -246,7 +252,7 @@ else
     echo_info "  3. wget https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb"
     echo_info "  4. sudo dpkg -i kiro-cli.deb"
     echo_info "  5. sudo apt-get install -f -y"
-    echo_info "  6. kiro --version  # 验证安装"
+    echo_info "  6. kiro-cli --version  # 验证安装"
     echo ""
     echo_info "详细说明请参考 README.md 中的 'Installing Kiro CLI' 部分"
     exit 1

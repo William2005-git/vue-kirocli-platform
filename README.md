@@ -166,14 +166,14 @@ rm kiro-cli.deb
 3. **Verify installation**:
 
 ```bash
-kiro --version
+kiro-cli --version
 ```
 
 4. **Configure Kiro CLI**:
 
 ```bash
 # Run Kiro CLI to complete initial configuration
-kiro
+kiro-cli
 
 # Follow the interactive prompts to:
 # - Authenticate with your AWS credentials
@@ -185,7 +185,7 @@ kiro
 
 ```bash
 # Test that Kiro CLI can execute commands
-kiro --help
+kiro-cli --help
 ```
 
 > **Note**: The deployment script (`install.sh`) will verify that Kiro CLI is installed and accessible. If Kiro CLI is not found, the script will exit with an error message.
