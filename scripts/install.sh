@@ -189,30 +189,79 @@ else
 fi
 
 if [ "$INSTALL_GOTTY" = true ]; then
+    # 检测系统架构
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)
+            GOTTY_ARCH="amd64"
+            ;;
+        aarch64|arm64)
+            GOTTY_ARCH="arm64"
+            ;;
+        armv7l)
+            GOTTY_ARCH="arm"
+            ;;
+        *)
+            echo_error "不支持的系统架构: $ARCH"
+            echo_info "支持的架构: x86_64, aarch64, arm64, armv7l"
+            exit 1
+            ;;
+    esac
+    
+    echo_info "检测到系统架构: $ARCH (使用 Gotty $GOTTY_ARCH 版本)"
     echo_info "下载 Gotty v1.6.0..."
     cd /tmp
-    wget -q https://github.com/sorenisanerd/gotty/releases/download/v1.6.0/gotty_v1.6.0_linux_amd64.tar.gz
-    tar -xzf gotty_v1.6.0_linux_amd64.tar.gz
+    wget -q https://github.com/sorenisanerd/gotty/releases/download/v1.6.0/gotty_v1.6.0_linux_${GOTTY_ARCH}.tar.gz
+    
+    if [ $? -ne 0 ]; then
+        echo_error "下载 Gotty 失败"
+        echo_info "请检查网络连接或手动下载"
+        exit 1
+    fi
+    
+    tar -xzf gotty_v1.6.0_linux_${GOTTY_ARCH}.tar.gz
     sudo mv gotty /usr/local/bin/gotty
     sudo chmod +x /usr/local/bin/gotty
-    rm gotty_v1.6.0_linux_amd64.tar.gz
+    rm gotty_v1.6.0_linux_${GOTTY_ARCH}.tar.gz
     
     GOTTY_VERSION=$(gotty --version 2>&1 || echo "unknown")
     echo_info "Gotty 安装完成: $GOTTY_VERSION"
 fi
 
-# 步骤 5: 检查 Kiro CLI
-echo_step "步骤 5: 检查 Kiro CLI"
-if command -v kiro-cli &> /dev/null; then
-    KIRO_CLI_PATH=$(which kiro-cli)
-    KIRO_CLI_VERSION=$(kiro-cli --version 2>&1 || echo "unknown")
-    echo_info "检测到 Kiro CLI: $KIRO_CLI_PATH"
-    echo_info "版本: $KIRO_CLI_VERSION"
+# 步骤 5: 安装 Kiro CLI
+echo_step "步骤 5: 安装 Kiro CLI"
+if command -v kiro &> /dev/null; then
+    KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
+    echo_info "检测到已安装 Kiro CLI: $KIRO_CLI_VERSION"
+    read -p "是否重新安装 Kiro CLI？(y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        INSTALL_KIRO=true
+    else
+        INSTALL_KIRO=false
+        KIRO_CLI_PATH=$(which kiro)
+    fi
 else
-    echo_error "未检测到 Kiro CLI"
-    echo_info "请先安装 Kiro CLI，然后重新运行此脚本"
-    echo_info "安装文档: https://docs.kiro.ai/installation"
-    exit 1
+    INSTALL_KIRO=true
+fi
+
+if [ "$INSTALL_KIRO" = true ]; then
+    echo_info "下载并安装 Kiro CLI..."
+    cd /tmp
+    wget -q https://desktop-release.q.us-east-1.amazonaws.com/latest/kiro-cli.deb
+    sudo dpkg -i kiro-cli.deb
+    sudo apt-get install -f -y
+    rm kiro-cli.deb
+    
+    if command -v kiro &> /dev/null; then
+        KIRO_CLI_PATH=$(which kiro)
+        KIRO_CLI_VERSION=$(kiro --version 2>&1 || echo "unknown")
+        echo_info "Kiro CLI 安装完成: $KIRO_CLI_VERSION"
+        echo_info "安装路径: $KIRO_CLI_PATH"
+    else
+        echo_error "Kiro CLI 安装失败"
+        exit 1
+    fi
 fi
 
 # 步骤 6: 生成 TLS 证书
